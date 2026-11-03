@@ -1,8 +1,8 @@
-"""fix_lost_revision
+"""initial schema
 
-Revision ID: ce225bf2a670
+Revision ID: 4afd18113d33
 Revises: 
-Create Date: 2026-11-01 20:17:35.535398
+Create Date: 2026-11-02 21:58:46.510664
 
 """
 from typing import Sequence, Union
@@ -13,7 +13,7 @@ import sqlmodel
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'ce225bf2a670'
+revision: str = '4afd18113d33'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -34,11 +34,10 @@ def upgrade() -> None:
     sa.Column('email', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('hashed_password', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('full_name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-    sa.Column('telegram_id', sa.Integer(), nullable=True),
+    sa.Column('is_admin', sa.Boolean(), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_user_email'), 'user', ['email'], unique=True)
-    op.create_index(op.f('ix_user_telegram_id'), 'user', ['telegram_id'], unique=False)
     op.create_table('order',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=False),
@@ -74,7 +73,6 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_order_user_id'), table_name='order')
     op.drop_index(op.f('ix_order_status'), table_name='order')
     op.drop_table('order')
-    op.drop_index(op.f('ix_user_telegram_id'), table_name='user')
     op.drop_index(op.f('ix_user_email'), table_name='user')
     op.drop_table('user')
     op.drop_table('product')

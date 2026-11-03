@@ -6,4 +6,4 @@ class User(SQLModel, table=True):
     email: str = Field(unique=True, index=True)
     hashed_password: str
     full_name: str 
-    telegram_id: Optional[int] = Field(default=None,  index=True)
+    is_admin: bool = False

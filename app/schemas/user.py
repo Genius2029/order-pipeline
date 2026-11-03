@@ -5,7 +5,6 @@ class UserCreate(BaseModel):
     email: str
     full_name: str
     password: str = Field(min_length=8)
-    is_admin: bool = False
 
 
 class UserLogin(BaseModel):
@@ -17,4 +16,4 @@ class UserRead(BaseModel):
     id: int
     email: str
     full_name: str
-    is_admin: bool 
+    is_admin: bool
