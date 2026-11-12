@@ -17,6 +17,12 @@ from app.schemas.order import (
     OrderSummary,
 )
 
+import logging
+
+from app.core.messaging import broker
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
@@ -70,6 +76,11 @@ async def create_order(
         )
 
     await session.commit()
+
+    try:
+        await broker.publish("order.created", {"order_id": order_id})
+    except Exception:
+        logger.exception("Failed to publish order.created for order %s", order_id)
 
     # The response is constructed from local variables; we do not touch ORM objects after a commit.
     return OrderRead(

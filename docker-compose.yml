@@ -31,6 +31,8 @@ services:
     ports:
       - "5672:5672"    
       - "15672:15672"  
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
@@ -68,3 +70,4 @@ services:
 
 volumes:
   pgdata:
+  rabbitmq_data:

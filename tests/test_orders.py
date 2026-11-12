@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from app.core.messaging import Broker
 
 async def test_order_total_is_calculated_by_server(api, user_headers, products):
     keyboard, mouse, _ = products
@@ -136,3 +137,31 @@ async def test_old_order_keeps_original_price(api, user_headers, admin_headers, 
     assert response.status_code == 200
     item = response.json()["items"][0]
     assert Decimal(str(item["unit_price"])) == Decimal("19.90")
+
+
+async def test_order_publishes_created_event(api, user_headers, products, fake_broker):
+    response = await api.post(
+        "/orders",
+        json={"items": [{"product_id": products[0], "quantity": 1}]},
+        headers=user_headers,
+    )
+
+    order_id = response.json()["id"]
+    assert fake_broker == [("order.created", {"order_id": order_id})]
+
+
+async def test_order_is_saved_even_if_publish_fails(api, user_headers, products, monkeypatch):
+    async def broken_publish(self, routing_key, payload):
+        raise ConnectionError("rabbitmq is down")
+
+    monkeypatch.setattr(Broker, "publish", broken_publish)
+
+    response = await api.post(
+        "/orders",
+        json={"items": [{"product_id": products[0], "quantity": 1}]},
+        headers=user_headers,
+    )
+    assert response.status_code == 201
+
+    orders = await api.get("/orders", headers=user_headers)
+    assert len(orders.json()) == 1

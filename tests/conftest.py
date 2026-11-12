@@ -11,6 +11,7 @@ from sqlmodel import SQLModel
 from app.api.main import app
 from app.core.security import create_access_token, hash_password
 from app.database import get_session
+from app.core.messaging import Broker
 
 
 from app.models.order import Order  
@@ -97,3 +98,14 @@ async def products(engine):
         ids = [p.id for p in items]
         await session.commit()
     return ids
+
+
+@pytest.fixture(autouse=True)
+def fake_broker(monkeypatch):
+    published = []
+
+    async def fake_publish(self, routing_key, payload):
+        published.append((routing_key, payload))
+
+    monkeypatch.setattr(Broker, "publish", fake_publish)
+    return published
