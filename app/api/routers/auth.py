@@ -1,3 +1,12 @@
+import os
+import secrets
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import delete
+
+from app.models.telegram_link_code import TelegramLinkCode
+
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -46,3 +55,32 @@ async def login(data: UserLogin, session: AsyncSession = Depends(get_session)):
 @router.get("/me", response_model=UserRead)
 async def me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+LINK_TTL_MINUTES = 15
+
+@router.post("/me/telegram-link")
+async def create_telegram_link(
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    user_id = current_user.id      # remember the user ID before the session is closed
+
+    # This user's old unused codes are no longer needed
+    await session.execute(delete(TelegramLinkCode).where(TelegramLinkCode.user_id == user_id))
+
+    code = secrets.token_urlsafe(16)
+    session.add(
+        TelegramLinkCode(
+            code=code,
+            user_id=user_id,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=LINK_TTL_MINUTES),
+        )
+    )
+    await session.commit()
+
+    bot_username = os.getenv("BOT_USERNAME")
+    return {
+        "link": f"https://t.me/{bot_username}?start={code}",
+        "expires_in_minutes": LINK_TTL_MINUTES,
+    }

@@ -121,3 +121,25 @@ async def new_order(engine):
         order_id = order.id
         await session.commit()
     return order_id
+
+
+@pytest.fixture
+def make_order(engine):
+    async def _make(status="new", chat_id=None, total="50.00", email="buyer@test.com"):
+        async with AsyncSession(engine) as session:
+            user = User(
+                email=email,
+                full_name="Buyer",
+                hashed_password=hash_password("secret123"),
+                telegram_chat_id=chat_id,
+            )
+            session.add(user)
+            await session.flush()
+            order = Order(user_id=user.id, status=status, total_amount=Decimal(total))
+            session.add(order)
+            await session.flush()
+            ids = (user.id, order.id)
+            await session.commit()
+        return ids
+
+    return _make

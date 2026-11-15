@@ -11,6 +11,7 @@ from app.core.messaging import broker
 from app.core.payments import PaymentDeclined, charge
 from app.database import engine
 from app.models.order import Order
+from app.workers.base import PermanentError, make_on_message, run_worker
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("payment-worker")
@@ -19,7 +20,7 @@ QUEUE_NAME = "payment.order_created"
 MAX_ATTEMPTS = 3
 
 
-class OrderNotFound(Exception):
+class OrderNotFound(PermanentError):
     """Persistent error: no order with this ID exists; retrying is pointless.."""
 
 
@@ -64,57 +65,16 @@ async def process_order(order_id: int, db_engine=engine):
     logger.info("Order %s -> %s", order_id, new_status)
 
 
-async def on_message(message: aio_pika.abc.AbstractIncomingMessage):
-    attempt = int(message.headers.get("x-attempt", 0))    # how many times we've already tried
-
+async def handle_payment(data: dict):
     try:
-        order_id = int(json.loads(message.body)["order_id"])
-    except (ValueError, KeyError, TypeError):
-        logger.error("Invalid message body: %r", message.body)
-        await broker.send_to_dlq(QUEUE_NAME, message, attempt, "invalid message")
-        await message.ack()
-        return
-
-    try:
-        await process_order(order_id)
-    except OrderNotFound:
-        logger.error("Order %s not found", order_id)
-        await broker.send_to_dlq(QUEUE_NAME, message, attempt, f"order {order_id} not found")
-    except Exception as exc:
-        attempt += 1
-        if attempt >= MAX_ATTEMPTS:
-            logger.error("Order %s: giving up after %s attempts (%s)", order_id, attempt, exc)
-            await broker.send_to_dlq(QUEUE_NAME, message, attempt, f"gave up: {exc}")
-        else:
-            logger.warning(
-                "Order %s: attempt %s/%s failed (%s), will retry",
-                order_id, attempt, MAX_ATTEMPTS, exc,
-            )
-            await broker.send_to_retry(QUEUE_NAME, message, attempt)
-
-    await message.ack()
+        order_id = int(data["order_id"])
+    except (KeyError, TypeError, ValueError):
+        raise PermanentError("invalid message")
+    await process_order(order_id)
 
 
-async def main():
-    await broker.start()
-    try:
-        queue = broker.queues[QUEUE_NAME]
-        logger.info("Waiting for messages in %s", QUEUE_NAME)
-
-        async with queue.iterator() as messages:
-            async for message in messages:
-                try:
-                    await on_message(message)
-                except Exception:
-                    # emergency case (e.g., broker unavailable): return to queue
-                    logger.exception("Unexpected failure, returning message to the queue")
-                    await message.nack(requeue=True)
-    finally:
-        await broker.stop()
+on_message = make_on_message(QUEUE_NAME, handle_payment)
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
+    run_worker(QUEUE_NAME, handle_payment)
