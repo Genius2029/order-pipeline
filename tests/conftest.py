@@ -109,3 +109,15 @@ def fake_broker(monkeypatch):
 
     monkeypatch.setattr(Broker, "publish", fake_publish)
     return published
+
+
+@pytest.fixture
+async def new_order(engine):
+    user_id = await _create_user(engine, "buyer@test.com")
+    async with AsyncSession(engine) as session:
+        order = Order(user_id=user_id, status="new", total_amount=Decimal("50.00"))
+        session.add(order)
+        await session.flush()
+        order_id = order.id
+        await session.commit()
+    return order_id
