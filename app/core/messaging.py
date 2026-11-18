@@ -17,7 +17,8 @@ AUDIT_QUEUE = "audit.order_events"
 
 QUEUES = {
     "payment.order_created": ["order.created"],
-    "notification.order_events": ["order.paid", "order.failed"]
+    "notification.order_events": ["order.paid", "order.failed"],
+    "stock.order_failed": ["order.failed"]
 }
 
 

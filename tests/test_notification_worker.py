@@ -128,3 +128,14 @@ async def test_telegram_link_requires_login(api):
     response = await api.post("/me/telegram-link")
 
     assert response.status_code in (401, 403)
+
+
+async def test_duplicate_message_notifies_once(engine, make_order, monkeypatch):
+    _, order_id = await make_order(status="paid", chat_id=777)
+    fake = FakeBot()
+    monkeypatch.setattr(notification, "tg_bot", fake)
+
+    await notification.handle_notification({"order_id": order_id}, "msg-1", db_engine=engine)
+    await notification.handle_notification({"order_id": order_id}, "msg-1", db_engine=engine)
+
+    assert len(fake.sent) == 1

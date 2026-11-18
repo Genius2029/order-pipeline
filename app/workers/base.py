@@ -32,7 +32,7 @@ def make_on_message(queue_name: str, handler):
             return
 
         try:
-            await handler(data)
+            await handler(data, message.message_id)
         except PermanentError as exc:
             logger.error("Permanent error: %s", exc)
             await broker.send_to_dlq(queue_name, message, attempt, str(exc))

@@ -3,6 +3,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy import update
 
 from app.core.security import get_current_user
 from app.database import get_session
@@ -32,7 +33,7 @@ async def create_order(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    # 1. merging duplicates: same item appears twice -> combine the quantities
+    # 1. discarding duplicates
     quantities: dict[int, int] = {}
     for item in data.items:
         quantities[item.product_id] = quantities.get(item.product_id, 0) + item.quantity
@@ -45,34 +46,49 @@ async def create_order(
     if missing:
         raise HTTPException(status_code=404, detail=f"Products not found: {sorted(missing)}")
 
-    # 3. check the remaining stock and calculate the total value based on prices FROM THE DATABASE
+    # We retrieve the necessary data beforehand; we do not touch the product objects thereafter.
+    names = {pid: p.name for pid, p in products.items()}
+    prices = {pid: p.price for pid, p in products.items()}
+
+    # 3. total based on prices FROM THE DATABASE
     total = Decimal("0")
     for product_id, quantity in quantities.items():
-        product = products[product_id]
-        if product.stock < quantity:
-            raise HTTPException(status_code=400, detail=f"Not enough stock for '{product.name}'")
-        total += product.price * quantity
+        total += prices[product_id] * quantity
 
-    # 4. order and line items in a single transaction
+    # 4. Reserving remaining stock: a single atomic UPDATE per product. Process in ascending order of ID:
+    #    a consistent locking order prevents deadlocks
+    for product_id, quantity in sorted(quantities.items()):
+        reserved = await session.execute(
+            update(Product)
+            .where(Product.id == product_id, Product.stock >= quantity)
+            .values(stock=Product.stock - quantity)
+            .execution_options(synchronize_session=False)
+        )
+        if reserved.rowcount == 0:
+            # An exception will roll back the entire transaction; anything previously reserved will be returned automatically
+            raise HTTPException(
+                status_code=400, detail=f"Not enough stock for '{names[product_id]}'"
+            )
+
+    # 5. order and line items in the same transaction
     order = Order(user_id=current_user.id, status="new", total_amount=total)
     session.add(order)
-    await session.flush()                      # getting order.id
+    await session.flush()
 
     order_id = order.id
     created_at = order.created_at
     items_read = []
     for product_id, quantity in quantities.items():
-        unit_price = products[product_id].price
         session.add(
             OrderItem(
                 order_id=order_id,
                 product_id=product_id,
                 quantity=quantity,
-                unit_price=unit_price,
+                unit_price=prices[product_id],
             )
         )
         items_read.append(
-            OrderItemRead(product_id=product_id, quantity=quantity, unit_price=unit_price)
+            OrderItemRead(product_id=product_id, quantity=quantity, unit_price=prices[product_id])
         )
 
     await session.commit()
@@ -82,7 +98,6 @@ async def create_order(
     except Exception:
         logger.exception("Failed to publish order.created for order %s", order_id)
 
-    # The response is constructed from local variables; we do not touch ORM objects after a commit.
     return OrderRead(
         id=order_id,
         status="new",

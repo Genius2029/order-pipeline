@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.database import engine
+from app.workers.dedupe import mark_processed, was_processed
 from app.models.order import Order
 from app.models.user import User
 from app.workers.base import PermanentError, run_consumer
@@ -19,6 +20,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("notification-worker")
 
 QUEUE_NAME = "notification.order_events"
+CONSUMER = "notification"
 
 tg_bot = Bot(token=os.getenv("BOT_TOKEN"))
 
@@ -32,7 +34,7 @@ class OrderNotFound(PermanentError):
     """There is no order with this ID; repeating the request is pointless.."""
 
 
-async def handle_notification(data: dict, db_engine=engine):
+async def handle_notification(data: dict, message_id=None, db_engine=engine):
     try:
         order_id = int(data["order_id"])
     except (KeyError, TypeError, ValueError):
@@ -47,6 +49,12 @@ async def handle_notification(data: dict, db_engine=engine):
         if row is None:
             raise OrderNotFound(order_id)
         order, user = row
+
+        already_done = bool(message_id) and await was_processed(session, CONSUMER, message_id)
+        if already_done:
+            logger.info("Duplicate message %s, skipping", message_id)
+            return
+        
         status, total = order.status, order.total_amount
         user_id, chat_id = user.id, user.telegram_chat_id
 
@@ -70,6 +78,11 @@ async def handle_notification(data: dict, db_engine=engine):
         return
     except TelegramBadRequest as exc:
         raise PermanentError(f"telegram rejected the message: {exc}")
+
+    if message_id:
+        async with AsyncSession(db_engine) as session:
+            await mark_processed(session, CONSUMER, message_id)
+            await session.commit()
 
     logger.info("Notified user %s about order %s (%s)", user_id, order_id, status)
 

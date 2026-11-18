@@ -65,7 +65,7 @@ async def process_order(order_id: int, db_engine=engine):
     logger.info("Order %s -> %s", order_id, new_status)
 
 
-async def handle_payment(data: dict):
+async def handle_payment(data: dict, message_id=None):
     try:
         order_id = int(data["order_id"])
     except (KeyError, TypeError, ValueError):
