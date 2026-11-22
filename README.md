@@ -4,7 +4,9 @@ An event-driven order processing backend. An order is accepted in milliseconds; 
 
 ![CI](https://github.com/Genius2029/order-pipeline/actions/workflows/ci.yml/badge.svg)
 
-<!-- demo video here -->
+
+https://github.com/user-attachments/assets/12659605-a2f0-48ad-a518-f7b62b857088
+
 
 **Demo (60 s):** an order is placed, the customer gets a Telegram message; RabbitMQ is then stopped, orders are still accepted, and every notification arrives once the broker is back.
 
