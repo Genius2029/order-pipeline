@@ -2,7 +2,7 @@
 
 An event-driven order processing backend. An order is accepted in milliseconds; payment, stock handling and customer notifications then happen asynchronously through RabbitMQ, with retries, dead-letter queues and idempotent consumers. The system keeps working when parts of it fail.
 
-![CI](https://github.com/ИМЯ_АККАУНТА/ИМЯ_РЕПОЗИТОРИЯ/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/Genius2029/order-pipeline/actions/workflows/ci.yml/badge.svg)
 
 <!-- demo video here -->
 
