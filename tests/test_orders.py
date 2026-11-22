@@ -139,7 +139,7 @@ async def test_old_order_keeps_original_price(api, user_headers, admin_headers, 
     assert Decimal(str(item["unit_price"])) == Decimal("19.90")
 
 
-async def test_order_publishes_created_event(api, user_headers, products, fake_broker):
+async def test_order_writes_created_event_to_outbox(api, user_headers, products, outbox):
     response = await api.post(
         "/orders",
         json={"items": [{"product_id": products[0], "quantity": 1}]},
@@ -147,11 +147,11 @@ async def test_order_publishes_created_event(api, user_headers, products, fake_b
     )
 
     order_id = response.json()["id"]
-    assert fake_broker == [("order.created", {"order_id": order_id})]
+    assert await outbox() == [("order.created", {"order_id": order_id})]
 
 
-async def test_order_is_saved_even_if_publish_fails(api, user_headers, products, monkeypatch):
-    async def broken_publish(self, routing_key, payload):
+async def test_order_is_accepted_even_if_broker_is_down(api, user_headers, products, monkeypatch):
+    async def broken_publish(self, routing_key, payload, message_id=None):
         raise ConnectionError("rabbitmq is down")
 
     monkeypatch.setattr(Broker, "publish", broken_publish)
@@ -161,7 +161,6 @@ async def test_order_is_saved_even_if_publish_fails(api, user_headers, products,
         json={"items": [{"product_id": products[0], "quantity": 1}]},
         headers=user_headers,
     )
-    assert response.status_code == 201
 
-    orders = await api.get("/orders", headers=user_headers)
-    assert len(orders.json()) == 1
+    assert response.status_code == 201
+    assert len((await api.get("/orders", headers=user_headers)).json()) == 1

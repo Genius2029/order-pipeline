@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
-from sqlmodel import SQLModel
+from sqlmodel import SQLModel, select
+
 
 from app.api.main import app
 from app.core.security import create_access_token, hash_password
@@ -18,6 +19,7 @@ from app.models.order import Order
 from app.models.order_item import OrderItem 
 from app.models.product import Product
 from app.models.user import User
+from app.models.outbox_event import OutboxEvent
 
 load_dotenv()
 
@@ -101,14 +103,26 @@ async def products(engine):
 
 
 @pytest.fixture(autouse=True)
-def fake_broker(monkeypatch):
+def fake_broker(request, monkeypatch):
     published = []
+    if request.node.get_closest_marker("integration"):
+        return published            # Integration tests need a real broker
 
-    async def fake_publish(self, routing_key, payload):
+    async def fake_publish(self, routing_key, payload, message_id=None):
         published.append((routing_key, payload))
 
     monkeypatch.setattr(Broker, "publish", fake_publish)
     return published
+
+
+@pytest.fixture
+def outbox(engine):
+    async def _read():
+        async with AsyncSession(engine) as session:
+            result = await session.execute(select(OutboxEvent).order_by(OutboxEvent.id))
+            return [(e.routing_key, e.payload) for e in result.scalars().all()]
+
+    return _read
 
 
 @pytest.fixture

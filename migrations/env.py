@@ -16,6 +16,7 @@ from app.models.order import Order
 from app.models.order_item import OrderItem 
 from app.models.telegram_link_code import TelegramLinkCode
 from app.models.processed_message import ProcessedMessage
+from app.models.outbox_event import OutboxEvent
 
 load_dotenv()
 

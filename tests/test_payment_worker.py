@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.payments import PaymentDeclined, PaymentGatewayError
 from app.models.order import Order
+from app.models.outbox_event import OutboxEvent
 from app.workers import payment as worker
 
 
@@ -77,7 +78,7 @@ async def get_status(engine, order_id):
         return order.status
 
 
-async def test_successful_payment_marks_order_paid(engine, new_order, fake_broker, monkeypatch):
+async def test_successful_payment_marks_order_paid(engine, new_order, outbox, monkeypatch):
     async def ok_charge(order_id, amount):
         return None
 
@@ -86,10 +87,10 @@ async def test_successful_payment_marks_order_paid(engine, new_order, fake_broke
     await worker.process_order(new_order, db_engine=engine)
 
     assert await get_status(engine, new_order) == "paid"
-    assert fake_broker == [("order.paid", {"order_id": new_order})]
+    assert outbox == [("order.paid", {"order_id": new_order})]
 
 
-async def test_declined_payment_marks_order_failed(engine, new_order, fake_broker, monkeypatch):
+async def test_declined_payment_marks_order_failed(engine, new_order, outbox, monkeypatch):
     async def declined_charge(order_id, amount):
         raise PaymentDeclined("not enough money")
 
@@ -98,10 +99,10 @@ async def test_declined_payment_marks_order_failed(engine, new_order, fake_broke
     await worker.process_order(new_order, db_engine=engine)
 
     assert await get_status(engine, new_order) == "failed"
-    assert fake_broker == [("order.failed", {"order_id": new_order})]
+    assert outbox == [("order.failed", {"order_id": new_order})]
 
 
-async def test_processing_same_order_twice_charges_once(engine, new_order, fake_broker, monkeypatch):
+async def test_processing_same_order_twice_charges_once(engine, new_order, outbox, monkeypatch):
     calls = []
 
     async def counting_charge(order_id, amount):
@@ -113,10 +114,10 @@ async def test_processing_same_order_twice_charges_once(engine, new_order, fake_
     await worker.process_order(new_order, db_engine=engine)
 
     assert len(calls) == 1
-    assert fake_broker == [("order.paid", {"order_id": new_order})]
+    assert outbox == [("order.paid", {"order_id": new_order})]
 
 
-async def test_gateway_error_leaves_order_untouched(engine, new_order, fake_broker, monkeypatch):
+async def test_gateway_error_leaves_order_untouched(engine, new_order, outbox, monkeypatch):
     async def broken_charge(order_id, amount):
         raise PaymentGatewayError("timeout")
 
@@ -126,11 +127,11 @@ async def test_gateway_error_leaves_order_untouched(engine, new_order, fake_brok
         await worker.process_order(new_order, db_engine=engine)
 
     assert await get_status(engine, new_order) == "new"
-    assert fake_broker == []
+    assert outbox == []
 
 
-async def test_missing_order_raises_not_found(engine, fake_broker):
+async def test_missing_order_raises_not_found(engine, outbox):
     with pytest.raises(worker.OrderNotFound):
         await worker.process_order(999, db_engine=engine)
 
-    assert fake_broker == []
+    assert outbox == []

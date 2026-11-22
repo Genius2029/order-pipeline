@@ -7,10 +7,10 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.core.messaging import broker
 from app.core.payments import PaymentDeclined, charge
 from app.database import engine
 from app.models.order import Order
+from app.models.outbox_event import OutboxEvent
 from app.workers.base import PermanentError, make_on_message, run_worker
 
 logging.basicConfig(level=logging.INFO)
@@ -45,23 +45,19 @@ async def process_order(order_id: int, db_engine=engine):
         logger.info("Order %s declined: %s", order_id, exc)
         new_status, event = "failed", "order.failed"
 
-    # 3. change the status with a single conditional query: will only work if the order
-    #    is still "new". This is the idempotency at the database level
+    # 3. status and result event: ONE transaction (outbox)
     async with AsyncSession(db_engine) as session:
         result = await session.execute(
             update(Order)
             .where(Order.id == order_id, Order.status == "new")
             .values(status=new_status)
         )
+        if result.rowcount == 0:
+            logger.info("Order %s was processed concurrently, nothing to do", order_id)
+            return
+        session.add(OutboxEvent(routing_key=event, payload={"order_id": order_id}))
         await session.commit()
-        changed = result.rowcount
 
-    if changed == 0:
-        logger.info("Order %s was processed concurrently, nothing to do", order_id)
-        return
-
-    # 4. inform all interested parties about the result
-    await broker.publish(event, {"order_id": order_id})
     logger.info("Order %s -> %s", order_id, new_status)
 
 

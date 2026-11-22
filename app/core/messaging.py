@@ -68,7 +68,7 @@ class Broker:
         if self.connection:
             await self.connection.close()
 
-    async def publish(self, routing_key: str, payload: dict):
+    async def publish(self, routing_key: str, payload: dict, message_id: str | None = None):
         message = aio_pika.Message(
             body=json.dumps(payload).encode(),
             content_type="application/json",

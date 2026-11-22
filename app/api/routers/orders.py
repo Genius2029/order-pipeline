@@ -11,6 +11,7 @@ from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.product import Product
 from app.models.user import User
+from app.models.outbox_event import OutboxEvent
 from app.schemas.order import (
     OrderCreate,
     OrderItemRead,
@@ -19,8 +20,6 @@ from app.schemas.order import (
 )
 
 import logging
-
-from app.core.messaging import broker
 
 logger = logging.getLogger(__name__)
 
@@ -90,13 +89,8 @@ async def create_order(
         items_read.append(
             OrderItemRead(product_id=product_id, quantity=quantity, unit_price=prices[product_id])
         )
-
+    session.add(OutboxEvent(routing_key="order.created", payload={"order_id": order_id}))
     await session.commit()
-
-    try:
-        await broker.publish("order.created", {"order_id": order_id})
-    except Exception:
-        logger.exception("Failed to publish order.created for order %s", order_id)
 
     return OrderRead(
         id=order_id,
