@@ -29,13 +29,16 @@ async def relay_once(db_engine=engine) -> bool:
         if event is None:
             return False
 
-        await broker.publish(event.routing_key, event.payload, message_id=event.message_id)
+        # We take the values ​​BEFORE the commit: after it, the object is "stale."
+        routing_key, payload, message_id = event.routing_key, event.payload, event.message_id
+
+        await broker.publish(routing_key, payload, message_id=message_id)
 
         event.published_at = datetime.now(timezone.utc)
         session.add(event)
         await session.commit()
 
-    logger.info("Relayed %s (%s)", event.routing_key, event.message_id)
+    logger.info("Relayed %s (%s)", routing_key, message_id)
     return True
 
 

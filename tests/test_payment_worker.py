@@ -5,6 +5,7 @@ from app.core.payments import PaymentDeclined, PaymentGatewayError
 from app.models.order import Order
 from app.models.outbox_event import OutboxEvent
 from app.workers import payment as worker
+from app.core.messaging import broker
 
 
 class FakeMessage:
@@ -30,8 +31,8 @@ def routed(monkeypatch):
     async def fake_dlq(queue_name, message, attempt, reason):
         result["dlq"].append(reason)
 
-    monkeypatch.setattr(worker.broker, "send_to_retry", fake_retry)
-    monkeypatch.setattr(worker.broker, "send_to_dlq", fake_dlq)
+    monkeypatch.setattr(broker, "send_to_retry", fake_retry)
+    monkeypatch.setattr(broker, "send_to_dlq", fake_dlq)
     return result
 
 
@@ -87,7 +88,7 @@ async def test_successful_payment_marks_order_paid(engine, new_order, outbox, mo
     await worker.process_order(new_order, db_engine=engine)
 
     assert await get_status(engine, new_order) == "paid"
-    assert outbox == [("order.paid", {"order_id": new_order})]
+    assert await outbox() == [("order.paid", {"order_id": new_order})]
 
 
 async def test_declined_payment_marks_order_failed(engine, new_order, outbox, monkeypatch):
@@ -99,7 +100,7 @@ async def test_declined_payment_marks_order_failed(engine, new_order, outbox, mo
     await worker.process_order(new_order, db_engine=engine)
 
     assert await get_status(engine, new_order) == "failed"
-    assert outbox == [("order.failed", {"order_id": new_order})]
+    assert await outbox() == [("order.failed", {"order_id": new_order})]
 
 
 async def test_processing_same_order_twice_charges_once(engine, new_order, outbox, monkeypatch):
@@ -114,7 +115,7 @@ async def test_processing_same_order_twice_charges_once(engine, new_order, outbo
     await worker.process_order(new_order, db_engine=engine)
 
     assert len(calls) == 1
-    assert outbox == [("order.paid", {"order_id": new_order})]
+    assert await outbox() == [("order.paid", {"order_id": new_order})]
 
 
 async def test_gateway_error_leaves_order_untouched(engine, new_order, outbox, monkeypatch):
@@ -127,11 +128,11 @@ async def test_gateway_error_leaves_order_untouched(engine, new_order, outbox, m
         await worker.process_order(new_order, db_engine=engine)
 
     assert await get_status(engine, new_order) == "new"
-    assert outbox == []
+    assert await outbox() == []
 
 
 async def test_missing_order_raises_not_found(engine, outbox):
     with pytest.raises(worker.OrderNotFound):
         await worker.process_order(999, db_engine=engine)
 
-    assert outbox == []
+    assert await outbox() == []

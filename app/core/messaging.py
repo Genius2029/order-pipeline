@@ -73,7 +73,7 @@ class Broker:
             body=json.dumps(payload).encode(),
             content_type="application/json",
             delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
-            message_id=str(uuid.uuid4()),
+            message_id=message_id or str(uuid.uuid4()),
         )
         await self.exchange.publish(message, routing_key=routing_key)
         logger.info("Published %s: %s", routing_key, payload)
